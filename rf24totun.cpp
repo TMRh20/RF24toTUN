@@ -50,14 +50,14 @@ bool configureAndSetUpRadio() {
 *
 * @return The TUN/TAP device file descriptor
 */
-int configureAndSetUpTunDevice() {
+int configureAndSetUpTunDevice(uint16_t address) {
 
     std::string tunTapDevice = "tun_nrf24";
     strcpy(tunName, tunTapDevice.c_str());
 
     //int flags = IFF_TUN | IFF_NO_PI | IFF_MULTI_QUEUE;
 	int flags = IFF_TAP | IFF_NO_PI;// | IFF_MULTI_QUEUE;
-    tunFd = allocateTunDevice(tunName, flags);
+    tunFd = allocateTunDevice(tunName, flags, address);
     if (tunFd >= 0) {
         std::cout << "Successfully attached to tun/tap device " << tunTapDevice << std::endl;
     } else {
@@ -78,7 +78,7 @@ int configureAndSetUpTunDevice() {
 * @param flags interface flags (eg, IFF_TUN etc.)
 * @return The file descriptor for the allocated interface or -1 is an error ocurred
 */
-int allocateTunDevice(char *dev, int flags) {
+int allocateTunDevice(char *dev, int flags, uint16_t address) {
     struct ifreq ifr;
     int fd;
 
@@ -112,6 +112,20 @@ int allocateTunDevice(char *dev, int flags) {
         return -1;
     }
 
+	struct sockaddr sap;
+    sap.sa_family = ARPHRD_ETHER;
+    ((char*)sap.sa_data)[0]|=address;
+    ((char*)sap.sa_data)[1]|=address>>8;
+    ((char*)sap.sa_data)[2]=0x52;
+    ((char*)sap.sa_data)[3]=0x46;
+    ((char*)sap.sa_data)[4]=0x32;
+    ((char*)sap.sa_data)[5]=0x34;
+
+    memcpy((char *) &ifr.ifr_hwaddr, (char *) &sap, sizeof(struct sockaddr));
+
+    if (ioctl(fd, SIOCSIFHWADDR, &ifr) < 0) {
+      fprintf(stderr, "TAP: failed to set MAC address\n");
+    }
     // if the operation was successful, write back the name of the
     // interface to the variable "dev", so the caller can know
     // it. Note that the caller MUST reserve space in *dev (see calling
@@ -162,8 +176,8 @@ void radioRxTxThreadFunction() {
         } //End RX
 
         network.update();
-
-
+		delay(2);
+		network.update();
          // TX section
         
         while(!radioTxQueue.empty() && !radio.available() ) {
@@ -211,24 +225,25 @@ void radioRxTxThreadFunction() {
 				const uint16_t other_node = macData.rf24_Addr;			
 				RF24NetworkHeader header(/*to node*/ other_node, EXTERNAL_DATA_TYPE);
 				ok = network.write(header,msg.getPayload(),msg.getLength());
-				printf("*************W1\n");
+				if(!ok){ delay(200); ok = network.write(header,msg.getPayload(),msg.getLength()); }
+				//printf("*************W1\n");
 			}else
 			if(macData.rf24_Verification == ARP_BC){
-				const uint16_t other_node = otherNodeAddr;			
+				//const uint16_t other_node = otherNodeAddr;			
 				RF24NetworkHeader header(/*to node*/ 00, EXTERNAL_DATA_TYPE); //Set to master node, will be modified by RF24Network if multi-casting
 				
 				if(thisNodeAddr == 00){ //Master Node
 					ok = network.multicast(header,msg.getPayload(),msg.getLength(),1 ); //Send to Level 1
 				}else{
-					ok = network.write(header,msg.getPayload(),msg.getLength());
+					ok = network.write(header,msg.getPayload(),msg.getLength());					
 				}
-				printf("*****************W2\n");
+				//printf("*****************W2\n");
 			}
 
-			printf("Addr: 0%#x\n",macData.rf24_Addr);
-			printf("Verif: 0%#x\n",macData.rf24_Verification);
+			//printf("Addr: 0%#x\n",macData.rf24_Addr);
+			//printf("Verif: 0%#x\n",macData.rf24_Verification);
             if (ok) {
-                std::cout << "ok." << std::endl;
+               // std::cout << "ok." << std::endl;
             } else {
                 std::cerr << "failed." << std::endl;
             }
@@ -289,7 +304,7 @@ void tunRxThreadFunction() {
 					if(radioTxQueue.size() < 3){
 						radioTxQueue.push(msg);
 					}else{
-					  //std::cout << "Tun Drop" << std::endl;
+					  std::cout << "**** Tun Drop ****" << std::endl;
 					}
 
                 } else
@@ -454,9 +469,9 @@ int main(int argc, char **argv) {
             std::cout << "Wrong address! Choose 0 or 1." << std::endl;
             exit(1);
         }
-
-        std::cout << "ThisNodeAddress: " << thisNodeAddr << std::endl;
-        std::cout << "OtherNodeAddress: " << otherNodeAddr << std::endl;
+		
+        std::cout << "ThisNodeAddress: " << std::oct << thisNodeAddr << std::endl;
+        std::cout << "OtherNodeAddress: " << std::oct << otherNodeAddr << std::endl;
         std::cout << "\n **********************************\n";
     } else {
             std::cout << "Wrong address! Choose 0 or 1." << std::endl;
@@ -464,7 +479,7 @@ int main(int argc, char **argv) {
     }
 
 
-    configureAndSetUpTunDevice();
+    configureAndSetUpTunDevice(thisNodeAddr);
     configureAndSetUpRadio();
 
     //start threads

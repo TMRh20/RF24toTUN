@@ -32,7 +32,7 @@
  * @file RF24toTUN.h
  *
  */
-
+#include "net/if_arp.h"
 #include <cstdlib>
 #include <stdio.h>
 #include <cstdint>
@@ -117,7 +117,7 @@ bool configureAndSetUpRadio();
 *
 * @return The TUN/TAP device file descriptor
 */
-int configureAndSetUpTunDevice();
+int configureAndSetUpTunDevice(uint16_t address);
 
 /**
 * Allocate the TUN/TAP device (if needed)
@@ -127,9 +127,10 @@ int configureAndSetUpTunDevice();
 *
 * @param *dev the name of an interface (or '\0'). MUST have enough space to hold the interface name if '\0' is passed
 * @param flags interface flags (eg, IFF_TUN etc.)
+* @param address RF24Network address of the node, used to set the MAC address of the interface.
 * @return The file descriptor for the allocated interface or -1 is an error ocurred
 */
-int allocateTunDevice(char *dev, int flags);
+int allocateTunDevice(char *dev, int flags, uint16_t address);
 
 /**
 * The thread function in charge receiving and transmitting messages with the radio.
