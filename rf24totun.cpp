@@ -21,7 +21,9 @@
  */
 
 #include "rf24totun.h"
-
+#if defined (USE_RF24MESH)
+  #include <RF24Mesh/RF24Mesh.h>
+#endif
 /**
 * Configuration and setup of the NRF24 radio
 *
@@ -29,11 +31,21 @@
 */
 bool configureAndSetUpRadio() {
 
-    radio.begin();
-    delay(5);
-    const uint16_t this_node = thisNodeAddr;
-    network.begin(/*channel*/ channel, /*node address*/ this_node);
-
+    #if defined (USE_RF24MESH)
+	  if(!thisNodeAddr){	  
+	     mesh.setNodeID(0);
+	  }else{
+		mesh.setNodeID(253); //Try not to conflict with any low-numbered node-ids
+	  }
+	  mesh.setChannel(channel);
+	  mesh.begin();
+	#else
+	  radio.begin();
+      delay(5);
+      const uint16_t this_node = thisNodeAddr;
+      network.begin(/*channel*/ channel, /*node address*/ this_node);
+	#endif
+	
     if (PRINT_DEBUG >= 1) {
         radio.printDetails();
     }
@@ -150,8 +162,14 @@ void radioRxTxThreadFunction() {
     while(1) {
     try {
 
-        network.update();
-
+		#if defined(USE_RF24MESH)
+			mesh.update();
+			if(!thisNodeAddr){
+				mesh.DHCP();
+			}
+		#else
+            network.update();
+		#endif
          //RX section
          
         while ( network.available() ) { // Is there anything ready for us?
@@ -175,9 +193,16 @@ void radioRxTxThreadFunction() {
             }
         } //End RX
 
-        network.update();
+        #if defined(USE_RF24MESH)
+			mesh.update();
+			if(!thisNodeAddr){
+				mesh.DHCP();
+			}
+		#else
+            network.update();
+		#endif
 		delay(2);
-		network.update();
+		//network.update();
          // TX section
         
         while(!radioTxQueue.empty() && !radio.available() ) {
@@ -335,7 +360,16 @@ void tunTxThreadFunction() {
         if (msg.getLength() > 0) {
 
             size_t writtenBytes = write(tunFd, msg.getPayload(), msg.getLength());
-			if(!writtenBytes){  writtenBytes = write(tunFd, msg.getPayload(), msg.getLength()); }
+			
+			uint32_t timeout = millis();
+			while(!writtenBytes){  
+				delay(3);
+				writtenBytes = write(tunFd, msg.getPayload(), msg.getLength()); 
+				if(millis()-timeout > 500){
+					//Timeout after .5 seconds
+					break;
+				}
+			}
             if (writtenBytes != msg.getLength()) {
                 std::cerr << "Tun: Less bytes written to tun/tap device then requested." << std::endl;
             } else {

@@ -57,6 +57,11 @@
 #include <RF24/RF24.h>
 #include <RF24Network/RF24Network.h>
 
+//#define USE_RF24MESH - This should be enabled when compiling by calling " make MESH=1 "
+
+#if defined (USE_RF24MESH)
+  #include <RF24Mesh/RF24Mesh.h>
+#endif
 
 #define PRINT_DEBUG 0
 
@@ -83,6 +88,10 @@ uint16_t thisNodeAddr; /**< Address of our node in Octal format (01,021, etc) */
 uint16_t otherNodeAddr;     /**< Address of the other node */
 const uint8_t channel = 97;
 unsigned long packets_sent;  /**< How many have we sent already */
+
+#if defined (USE_RF24MESH)
+RF24Mesh mesh(radio,network);
+#endif
 
 /**
  * Thread stuff
