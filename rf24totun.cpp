@@ -126,13 +126,14 @@ int allocateTunDevice(char *dev, int flags, uint16_t address) {
 
 	struct sockaddr sap;
     sap.sa_family = ARPHRD_ETHER;
-    ((char*)sap.sa_data)[0]|=address;
-    ((char*)sap.sa_data)[1]|=address>>8;
+    ((char*)sap.sa_data)[0]=address;
+    ((char*)sap.sa_data)[1]=address>>8;
     ((char*)sap.sa_data)[2]=0x52;
     ((char*)sap.sa_data)[3]=0x46;
     ((char*)sap.sa_data)[4]=0x32;
     ((char*)sap.sa_data)[5]=0x34;
-
+	
+	//printf("Address 0%o first %u last %u\n",address,sap.sa_data[0],sap.sa_data[1]);
     memcpy((char *) &ifr.ifr_hwaddr, (char *) &sap, sizeof(struct sockaddr));
 
     if (ioctl(fd, SIOCSIFHWADDR, &ifr) < 0) {
@@ -205,7 +206,7 @@ void radioRxTxThreadFunction() {
 		//network.update();
          // TX section
         
-        while(!radioTxQueue.empty() && !radio.available() ) {
+        while(!radioTxQueue.empty() ){//&& !radio.available() ) {
             Message msg = radioTxQueue.pop();
 
             if (PRINT_DEBUG >= 1) {
@@ -219,13 +220,7 @@ void radioRxTxThreadFunction() {
 			uint8_t *tmp = msg.getPayload();
 			/*printf("********WRITING************\n");
 			for(int i=0; i<8; i++){
-				//std::cout << std::hex << buffer[i] <<std::endl;
-				//printf("%#x\n",(uint8_t)buffer[i]);
-				//uint32_t tmp2 = 0;
-				//tmp2 |= (uint32_t)tmp;
-				//printf("%01x\n",tmp2);
 				printf("0%#x\n",tmp[i]);
-				//tmp++;
 			}*/
 			
 			tmp = msg.getPayload();
@@ -237,32 +232,29 @@ void radioRxTxThreadFunction() {
 				uint32_t rf24_Verification;								
 			};
 			
-			//struct serialip_state *s = &(uip_conn->appstate);//Creates a pointer to the application state of the current connection, which can be used to terminate it?
-			
+		
 			macStruct macData;
-			//memcpy(&macData,tmp,sizeof(macData));
 			memcpy(&macData.rf24_Addr,tmp,2);
 			memcpy(&macData.rf24_Verification,tmp+2,4);
-            //const uint16_t other_node = otherNodeAddr;
 			
 			bool ok = 0;
 			if(macData.rf24_Verification == RF24_STR){
 				const uint16_t other_node = macData.rf24_Addr;			
 				RF24NetworkHeader header(/*to node*/ other_node, EXTERNAL_DATA_TYPE);
 				ok = network.write(header,msg.getPayload(),msg.getLength());
-				if(!ok){ delay(200); ok = network.write(header,msg.getPayload(),msg.getLength()); }
-				//printf("*************W1\n");
+				if(!ok){ delay(15); ok = network.write(header,msg.getPayload(),msg.getLength()); }
+				if(!ok){ delay(25); ok = network.write(header,msg.getPayload(),msg.getLength()); }
 			}else
 			if(macData.rf24_Verification == ARP_BC){
-				//const uint16_t other_node = otherNodeAddr;			
 				RF24NetworkHeader header(/*to node*/ 00, EXTERNAL_DATA_TYPE); //Set to master node, will be modified by RF24Network if multi-casting
 				
 				if(thisNodeAddr == 00){ //Master Node
 					ok = network.multicast(header,msg.getPayload(),msg.getLength(),1 ); //Send to Level 1
+					delay(15);
+					ok = network.multicast(header,msg.getPayload(),msg.getLength(),1 ); //Send to Level 1
 				}else{
 					ok = network.write(header,msg.getPayload(),msg.getLength());					
 				}
-				//printf("*****************W2\n");
 			}
 
 			//printf("Addr: 0%#x\n",macData.rf24_Addr);
@@ -489,9 +481,9 @@ int main(int argc, char **argv) {
         myChar = input[0];
         if(myChar == '0'){
             thisNodeAddr = 00;
-            otherNodeAddr = 1;
+            otherNodeAddr = 2;
         }else if(myChar == '1') {
-            thisNodeAddr = 1;
+            thisNodeAddr = 2;
             otherNodeAddr = 00;
 		}else if(myChar == '2') {
             thisNodeAddr = 00;
