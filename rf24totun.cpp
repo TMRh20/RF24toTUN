@@ -126,14 +126,14 @@ int allocateTunDevice(char *dev, int flags, uint16_t address) {
 
 	struct sockaddr sap;
     sap.sa_family = ARPHRD_ETHER;
-    ((char*)sap.sa_data)[0]=address;
-    ((char*)sap.sa_data)[1]=address>>8;
-    ((char*)sap.sa_data)[2]=0x52;
-    ((char*)sap.sa_data)[3]=0x46;
-    ((char*)sap.sa_data)[4]=0x32;
-    ((char*)sap.sa_data)[5]=0x34;
+    ((char*)sap.sa_data)[4]=address;
+    ((char*)sap.sa_data)[5]=address>>8;
+    ((char*)sap.sa_data)[0]=0x52;
+    ((char*)sap.sa_data)[1]=0x46;
+    ((char*)sap.sa_data)[2]=0x32;
+    ((char*)sap.sa_data)[3]=0x34;
 	
-	//printf("Address 0%o first %u last %u\n",address,sap.sa_data[0],sap.sa_data[1]);
+	printf("Address 0%o first %u last %u\n",address,sap.sa_data[0],sap.sa_data[1]);
     memcpy((char *) &ifr.ifr_hwaddr, (char *) &sap, sizeof(struct sockaddr));
 
     if (ioctl(fd, SIOCSIFHWADDR, &ifr) < 0) {
@@ -227,15 +227,15 @@ void radioRxTxThreadFunction() {
 			
 			uint32_t RF24_STR = 0x34324652; //Identifies the mac as an RF24 mac
 			uint32_t ARP_BC = 0xFFFFFFFF;   //Broadcast address
-			struct macStruct{
+			struct macStruct{				
+				uint32_t rf24_Verification;
 				uint16_t rf24_Addr;
-				uint32_t rf24_Verification;								
 			};
 			
 		
 			macStruct macData;
-			memcpy(&macData.rf24_Addr,tmp,2);
-			memcpy(&macData.rf24_Verification,tmp+2,4);
+			memcpy(&macData.rf24_Addr,tmp+4,2);
+			memcpy(&macData.rf24_Verification,tmp,4);
 			
 			bool ok = 0;
 			if(macData.rf24_Verification == RF24_STR){
@@ -250,8 +250,8 @@ void radioRxTxThreadFunction() {
 				
 				if(thisNodeAddr == 00){ //Master Node
 					ok = network.multicast(header,msg.getPayload(),msg.getLength(),1 ); //Send to Level 1
-					delay(15);
-					ok = network.multicast(header,msg.getPayload(),msg.getLength(),1 ); //Send to Level 1
+					//delay(15);
+					//ok = network.multicast(header,msg.getPayload(),msg.getLength(),1 ); //Send to Level 1
 				}else{
 					ok = network.write(header,msg.getPayload(),msg.getLength());					
 				}
