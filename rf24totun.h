@@ -109,6 +109,10 @@ boost::scoped_ptr< boost::thread > tunTxThread;
 char tunName[IFNAMSIZ];
 int tunFd;
 
+uint8_t config_TUN;
+uint8_t mesh_enabled;
+uint16_t RF24Network_address;
+uint8_t mesh_nodeID;
 
 /**
 * Configuration and setup of the NRF24 radio

@@ -26,14 +26,24 @@
 
 USAGE="Usage:
 Set the IP for this node and ping the other node.
-  $0 \$nodeID \$nodeID
+  $0 \$nodeIP \$nodeIP
 
 This is node1 and it will ping node2 three times
   $0 1 2
+  
+Optionally set the octal RF24Network address for non-mesh
+nodes.
+  $0 1 2 01  
 "
 
 if [[ -z "${1##*[!0-9]*}" ]] || [[ -z "${2##*[!0-9]*}" ]]; then
         echo -e "$USAGE"
+		exit
+fi
+
+ADDRESS=${3}
+if [[ -z "${ADDRESS##*[!0-9]*}" ]]; then
+	ADDRESS=0
 fi
 
 INTERFACE="tun_nrf24"
@@ -62,4 +72,24 @@ function pingOther() {
 }
 
 setIP && pingOther &
-/usr/local/bin/rf24totun
+
+#### Examples for running RF24toTUN once the interface is configured ####
+# Run sudo ./rf24totun -h  for help
+
+## Master Node w/TAP, mesh disabled, user specified RF24Network address (Master is 00)
+/usr/local/bin/rf24totun -a${ADDRESS}
+
+## Master Node w/TAP, mesh enabled for address assignment only, ARP for resolution
+#/usr/local/bin/rf24totun -m
+
+## Child Node w/TAP, mesh disabled, RF24Network address 012
+#/usr/local/bin/rf24totun -a012
+
+## Master node w/TUN, mesh enabled
+#/usr/local/bin/rf24totun -t
+
+## Child node w/TUN, mesh enabled, nodeID 22, using IP address <x>.<y>.<z>.22
+#/usr/local/bin/rf24totun -t -i22
+
+
+

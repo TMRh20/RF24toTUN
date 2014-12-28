@@ -24,6 +24,8 @@
 #if defined (USE_RF24MESH)
   #include <RF24Mesh/RF24Mesh.h>
 #endif
+#include <unistd.h>
+
 /**
 * Configuration and setup of the NRF24 radio
 *
@@ -32,18 +34,25 @@
 bool configureAndSetUpRadio() {
 
     #if defined (USE_RF24MESH)
+	if(mesh_enabled){
 	  if(!thisNodeAddr){	  
 	     mesh.setNodeID(0);
 	  }else{
-		mesh.setNodeID(253); //Try not to conflict with any low-numbered node-ids
+		if(!mesh_nodeID){
+			mesh_nodeID = 253;
+		}
+		mesh.setNodeID(mesh_nodeID); //Try not to conflict with any low-numbered node-ids
 	  }
 	  mesh.setChannel(channel);
 	  mesh.begin();
-	#else
+	}else{
+	#endif
 	  radio.begin();
       delay(5);
       const uint16_t this_node = thisNodeAddr;
       network.begin(/*channel*/ channel, /*node address*/ this_node);
+	#if defined (USE_RF24MESH)  
+	}
 	#endif
 	
     if (PRINT_DEBUG >= 1) {
@@ -67,9 +76,13 @@ int configureAndSetUpTunDevice(uint16_t address) {
     std::string tunTapDevice = "tun_nrf24";
     strcpy(tunName, tunTapDevice.c_str());
 
-    //int flags = IFF_TUN | IFF_NO_PI | IFF_MULTI_QUEUE;
-	int flags = IFF_TAP | IFF_NO_PI;// | IFF_MULTI_QUEUE;
-    tunFd = allocateTunDevice(tunName, flags, address);
+	int flags;
+	if(config_TUN){
+      flags = IFF_TUN | IFF_NO_PI | IFF_MULTI_QUEUE;
+	}else{
+	  flags = IFF_TAP | IFF_NO_PI | IFF_MULTI_QUEUE;
+    }
+	tunFd = allocateTunDevice(tunName, flags, address);
     if (tunFd >= 0) {
         std::cout << "Successfully attached to tun/tap device " << tunTapDevice << std::endl;
     } else {
@@ -115,7 +128,8 @@ int allocateTunDevice(char *dev, int flags, uint16_t address) {
     if(ioctl(fd, TUNSETIFF, (void *) &ifr) < 0) {
         //close(fd);
         std::cerr << "Error: enabling TUNSETIFF" << std::endl;
-        return .1;
+		std::cerr << "If changing from TAP/TUN, run 'sudo ip link delete tun_nrf24' to remove the interface" << std::endl;
+        return 1;
     }
 
     //Make interface persistent
@@ -124,21 +138,23 @@ int allocateTunDevice(char *dev, int flags, uint16_t address) {
         return -1;
     }
 
-	struct sockaddr sap;
-    sap.sa_family = ARPHRD_ETHER;
-    ((char*)sap.sa_data)[4]=address;
-    ((char*)sap.sa_data)[5]=address>>8;
-    ((char*)sap.sa_data)[0]=0x52;
-    ((char*)sap.sa_data)[1]=0x46;
-    ((char*)sap.sa_data)[2]=0x32;
-    ((char*)sap.sa_data)[3]=0x34;
+	if(!config_TUN){
+	  struct sockaddr sap;
+      sap.sa_family = ARPHRD_ETHER;
+      ((char*)sap.sa_data)[4]=address;
+      ((char*)sap.sa_data)[5]=address>>8;
+      ((char*)sap.sa_data)[0]=0x52;
+      ((char*)sap.sa_data)[1]=0x46;
+      ((char*)sap.sa_data)[2]=0x32;
+      ((char*)sap.sa_data)[3]=0x34;
 	
-	printf("Address 0%o first %u last %u\n",address,sap.sa_data[0],sap.sa_data[1]);
-    memcpy((char *) &ifr.ifr_hwaddr, (char *) &sap, sizeof(struct sockaddr));
+	  //printf("Address 0%o first %u last %u\n",address,sap.sa_data[0],sap.sa_data[1]);
+      memcpy((char *) &ifr.ifr_hwaddr, (char *) &sap, sizeof(struct sockaddr));	
 
-    if (ioctl(fd, SIOCSIFHWADDR, &ifr) < 0) {
-      fprintf(stderr, "TAP: failed to set MAC address\n");
-    }
+      if (ioctl(fd, SIOCSIFHWADDR, &ifr) < 0) {
+        fprintf(stderr, "TAP: failed to set MAC address\n");
+      }
+	}
     // if the operation was successful, write back the name of the
     // interface to the variable "dev", so the caller can know
     // it. Note that the caller MUST reserve space in *dev (see calling
@@ -162,15 +178,19 @@ void radioRxTxThreadFunction() {
 
     while(1) {
     try {
-
+        
+		if(mesh_enabled){
 		#if defined(USE_RF24MESH)
+		  if(mesh_enabled){
 			mesh.update();
 			if(!thisNodeAddr){
 				mesh.DHCP();
 			}
-		#else
-            network.update();
+		  }
 		#endif
+		}else{
+           network.update();
+        }
          //RX section
          
         while ( network.available() ) { // Is there anything ready for us?
@@ -194,19 +214,25 @@ void radioRxTxThreadFunction() {
             }
         } //End RX
 
+		if(mesh_enabled){
         #if defined(USE_RF24MESH)
 			mesh.update();
 			if(!thisNodeAddr){
 				mesh.DHCP();
 			}
-		#else
-            network.update();
 		#endif
+		}else{
+            network.update();
+		}
 		delay(2);
 		//network.update();
          // TX section
         
-        while(!radioTxQueue.empty() ){//&& !radio.available() ) {
+		bool ok = 0;
+		
+        while(!radioTxQueue.empty() && !radio.available()) {
+		
+			
             Message msg = radioTxQueue.pop();
 
             if (PRINT_DEBUG >= 1) {
@@ -223,8 +249,11 @@ void radioRxTxThreadFunction() {
 				printf("0%#x\n",tmp[i]);
 			}*/
 			
-			tmp = msg.getPayload();
-			
+			//tmp = msg.getPayload();
+		  
+		  
+		  if(!config_TUN ){ //TAP can use RF24Mesh for address assignment, but will still use ARP for address resolution
+		
 			uint32_t RF24_STR = 0x34324652; //Identifies the mac as an RF24 mac
 			uint32_t ARP_BC = 0xFFFFFFFF;   //Broadcast address
 			struct macStruct{				
@@ -237,7 +266,7 @@ void radioRxTxThreadFunction() {
 			memcpy(&macData.rf24_Addr,tmp+4,2);
 			memcpy(&macData.rf24_Verification,tmp,4);
 			
-			bool ok = 0;
+			
 			if(macData.rf24_Verification == RF24_STR){
 				const uint16_t other_node = macData.rf24_Addr;			
 				RF24NetworkHeader header(/*to node*/ other_node, EXTERNAL_DATA_TYPE);
@@ -256,6 +285,22 @@ void radioRxTxThreadFunction() {
 					ok = network.write(header,msg.getPayload(),msg.getLength());					
 				}
 			}
+		  }else{ // TUN always needs to use RF24Mesh for address assignment AND resolution
+		     #if defined (USE_RF24MESH)
+			   uint8_t lastOctet = tmp[19];
+			   uint8_t meshAddr;
+			 
+			  if ( (meshAddr = mesh.getAddress(lastOctet)) > 0) {
+			    RF24NetworkHeader header(00, EXTERNAL_DATA_TYPE); 
+			    header.to_node = meshAddr;
+			    ok = network.write(header, msg.getPayload(), msg.getLength());
+				if(!ok){ delay(15); ok = network.write(header,msg.getPayload(),msg.getLength()); }
+				if(!ok){ delay(25); ok = network.write(header,msg.getPayload(),msg.getLength()); }
+			  }
+			 
+			 #endif
+		  
+		  }		
 
 			//printf("Addr: 0%#x\n",macData.rf24_Addr);
 			//printf("Verif: 0%#x\n",macData.rf24_Verification);
@@ -318,7 +363,7 @@ void tunRxThreadFunction() {
                     msg.setPayload(buffer,nread);
 
                     // send downwards
-					if(radioTxQueue.size() < 3){
+					if(radioTxQueue.size() < 100){ // 150kB max queue size
 						radioTxQueue.push(msg);
 					}else{
 					  std::cout << "**** Tun Drop ****" << std::endl;
@@ -467,43 +512,62 @@ void joinThreads() {
 * @param **argv
 * @return Exit code
 */
+
+void showhelpinfo(char *s)
+{
+  std::cout<<"RF24toTUN Usage Information"<<std::endl
+  <<"Usage:   "<<s<<" [-option] [argument]"<<std::endl
+  <<"option:  "<<"-a  RF24Network address to use: (00) -DEFAULT-  Address specified in Octal format ie: 01, 011"<<std::endl
+  <<"         "<<"-t  Configure as TUN -Requires RF24Mesh- or TAP -DEFAULT- "<<std::endl
+  <<"         "<<"-m  Use RF24Mesh for address resolution (TUN) and assignment(TUN/TAP)"<<std::endl
+  <<"                 -Default if TUN is enabled-"<<std::endl
+  <<"         "<<"-i  Config RF24Mesh nodeID (253) -DEFAULT- for non-master nodes "<<std::endl
+  <<"                 Note: Last octet of IP must = nodeID"<<std::endl
+  <<"         "<<"-h  show help information"<<std::endl
+  <<std::endl<<"### Examples: ###"<<std::endl
+  <<"Master Node w/TAP: ./rf24totun -a00 "<<std::endl
+  <<"Child Node w/TAP: ./rf24totun -a01 "<<std::endl
+  <<"Master Node w/TUN w/RF24Mesh: ./rf24totun -t "<<std::endl
+  <<"Child Node w/TUN w/RF24Mesh NodeId 22: ./rf24totun -t -i22 "<<std::endl;
+}
+
 int main(int argc, char **argv) {
 
+	
+	int tmp;
+	while ((tmp=getopt(argc,argv,"tma:i:"))!=-1)
+    switch (tmp)
+      {  
+         case 't': config_TUN = 1;
+		           mesh_enabled = 1;		 
+				   #if !defined(USE_RF24MESH)
+				     printf("*** Recompile with make MESH=1 option to enable RF24Mesh ***\n");
+				     return 0;
+				   #endif				   
+		           break;
+         case 'm': mesh_enabled = 1;
+                   #if !defined(USE_RF24MESH)
+				     printf("*** Recompile with make MESH=1 option to enable RF24Mesh ***\n");
+				     return 0;
+				   #endif
+				   break;
+         case 'a': thisNodeAddr = strtol(optarg,NULL,8);
+				   if(!network.is_valid_address(thisNodeAddr)){
+					 printf("Invalid address specified\n");
+					 return 0;
+				   }
+  				   break;
+		 case 'i': mesh_nodeID = atoi(optarg);
+                   #if !defined(USE_RF24MESH)
+				     printf("*** Recompile with make MESH=1 option to enable RF24Mesh ***\n");
+					 return 0;
+				   #endif
+				   break;
+         case '?': showhelpinfo(argv[0]); return 0; break;
+		 default : printf("Default opt\n"); break;
+      }
+	  
     std::atexit(on_exit);
-
-    std::cout << "\n ************ Address Setup ***********\n";
-    std::string input = "";
-    char myChar = {0};
-    std::cout << "Choose an address: Enter 0 for master, 1 for child, 2 for Master with 1 Arduino routing node (02), 3 for Child with Arduino routing node  (CTRL+C to exit) \n>";
-    std::getline(std::cin,input);
-
-    if(input.length() > 0) {
-        myChar = input[0];
-        if(myChar == '0'){
-            thisNodeAddr = 00;
-            otherNodeAddr = 2;
-        }else if(myChar == '1') {
-            thisNodeAddr = 2;
-            otherNodeAddr = 00;
-		}else if(myChar == '2') {
-            thisNodeAddr = 00;
-            otherNodeAddr = 012;
-		}else if(myChar == '3') {
-            thisNodeAddr = 012;
-            otherNodeAddr = 00;
-        } else {
-            std::cout << "Wrong address! Choose 0 or 1." << std::endl;
-            exit(1);
-        }
-		
-        std::cout << "ThisNodeAddress: " << std::oct << thisNodeAddr << std::endl;
-        std::cout << "OtherNodeAddress: " << std::oct << otherNodeAddr << std::endl;
-        std::cout << "\n **********************************\n";
-    } else {
-            std::cout << "Wrong address! Choose 0 or 1." << std::endl;
-            exit(1);
-    }
-
 
     configureAndSetUpTunDevice(thisNodeAddr);
     configureAndSetUpRadio();
