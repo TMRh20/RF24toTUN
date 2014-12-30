@@ -80,7 +80,7 @@ int configureAndSetUpTunDevice(uint16_t address) {
 	if(config_TUN){
       flags = IFF_TUN | IFF_NO_PI | IFF_MULTI_QUEUE;
 	}else{
-	  flags = IFF_TAP | IFF_NO_PI | IFF_MULTI_QUEUE;
+      flags = IFF_TAP | IFF_NO_PI | IFF_MULTI_QUEUE;
     }
 	tunFd = allocateTunDevice(tunName, flags, address);
     if (tunFd >= 0) {
@@ -129,7 +129,7 @@ int allocateTunDevice(char *dev, int flags, uint16_t address) {
         //close(fd);
         std::cerr << "Error: enabling TUNSETIFF" << std::endl;
 		std::cerr << "If changing from TAP/TUN, run 'sudo ip link delete tun_nrf24' to remove the interface" << std::endl;
-        return 1;
+        return -1;
     }
 
     //Make interface persistent
@@ -179,6 +179,7 @@ void radioRxTxThreadFunction() {
     while(1) {
     try {
         
+		delay(1);
 		if(mesh_enabled){
 		#if defined(USE_RF24MESH)
 		  if(mesh_enabled){
@@ -214,6 +215,8 @@ void radioRxTxThreadFunction() {
             }
         } //End RX
 
+		delay(1);
+		
 		if(mesh_enabled){
         #if defined(USE_RF24MESH)
 			mesh.update();
@@ -224,7 +227,7 @@ void radioRxTxThreadFunction() {
 		}else{
             network.update();
 		}
-		delay(2);
+		
 		//network.update();
          // TX section
         
@@ -268,11 +271,10 @@ void radioRxTxThreadFunction() {
 			
 			
 			if(macData.rf24_Verification == RF24_STR){
-				const uint16_t other_node = macData.rf24_Addr;			
-				RF24NetworkHeader header(/*to node*/ other_node, EXTERNAL_DATA_TYPE);
+				RF24NetworkHeader header(/*to node*/ macData.rf24_Addr, EXTERNAL_DATA_TYPE);
 				ok = network.write(header,msg.getPayload(),msg.getLength());
-				if(!ok){ delay(15); ok = network.write(header,msg.getPayload(),msg.getLength()); }
-				if(!ok){ delay(25); ok = network.write(header,msg.getPayload(),msg.getLength()); }
+				if(!ok){ network.update();  RF24NetworkHeader header(/*to node*/ macData.rf24_Addr, EXTERNAL_DATA_TYPE); ok = network.write(header,msg.getPayload(),msg.getLength()); }
+				if(!ok){ network.update();  RF24NetworkHeader header(/*to node*/ macData.rf24_Addr, EXTERNAL_DATA_TYPE); ok = network.write(header,msg.getPayload(),msg.getLength()); }
 			}else
 			if(macData.rf24_Verification == ARP_BC){
 				RF24NetworkHeader header(/*to node*/ 00, EXTERNAL_DATA_TYPE); //Set to master node, will be modified by RF24Network if multi-casting
@@ -291,11 +293,10 @@ void radioRxTxThreadFunction() {
 			   uint8_t meshAddr;
 			 
 			  if ( (meshAddr = mesh.getAddress(lastOctet)) > 0) {
-			    RF24NetworkHeader header(00, EXTERNAL_DATA_TYPE); 
-			    header.to_node = meshAddr;
+			    RF24NetworkHeader header(meshAddr, EXTERNAL_DATA_TYPE);
 			    ok = network.write(header, msg.getPayload(), msg.getLength());
-				if(!ok){ delay(15); ok = network.write(header,msg.getPayload(),msg.getLength()); }
-				if(!ok){ delay(25); ok = network.write(header,msg.getPayload(),msg.getLength()); }
+				if(!ok){ network.update();  RF24NetworkHeader header(/*to node*/ meshAddr, EXTERNAL_DATA_TYPE); ok = network.write(header,msg.getPayload(),msg.getLength()); }
+				if(!ok){ network.update();  RF24NetworkHeader header(/*to node*/ meshAddr, EXTERNAL_DATA_TYPE); ok = network.write(header,msg.getPayload(),msg.getLength()); }
 			  }
 			 
 			 #endif
