@@ -113,6 +113,7 @@ uint8_t config_TUN;
 uint8_t mesh_enabled;
 uint16_t RF24Network_address;
 uint8_t mesh_nodeID;
+rf24_datarate_e dataRate;
 
 /**
 * Configuration and setup of the NRF24 radio

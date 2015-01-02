@@ -73,6 +73,13 @@ function pingOther() {
 
 setIP && pingOther &
 
+##IMPORTANT: Extra configuration for TAP devices - Increase the number of ARP resolution attempts from the default of 3
+sysctl -w net.ipv4.neigh.tun_nrf24.mcast_solicit=10
+#Optionally increase the delay between ARP requests
+sysctl -w net.ipv4.neigh.tun_nrf24.retrans_time_ms=1333
+#Optionally increase the default base_reachable_time_ms from 30000ms
+sysctl -w net.ipv4.neigh.tun_nrf24.base_reachable_time_ms=90000
+
 #### Examples for running RF24toTUN once the interface is configured ####
 # Run sudo ./rf24totun -h  for help
 

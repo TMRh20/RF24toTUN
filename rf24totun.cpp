@@ -54,7 +54,8 @@ bool configureAndSetUpRadio() {
 	#if defined (USE_RF24MESH)  
 	}
 	#endif
-	
+	network.multicastRelay=1;
+	radio.setDataRate(dataRate);
     if (PRINT_DEBUG >= 1) {
         radio.printDetails();
     }
@@ -80,7 +81,7 @@ int configureAndSetUpTunDevice(uint16_t address) {
 	if(config_TUN){
       flags = IFF_TUN | IFF_NO_PI | IFF_MULTI_QUEUE;
 	}else{
-      flags = IFF_TAP | IFF_NO_PI | IFF_MULTI_QUEUE;
+	  flags = IFF_TAP | IFF_NO_PI | IFF_MULTI_QUEUE;
     }
 	tunFd = allocateTunDevice(tunName, flags, address);
     if (tunFd >= 0) {
@@ -179,7 +180,7 @@ void radioRxTxThreadFunction() {
     while(1) {
     try {
         
-		delay(1);
+		//delay(1);
 		if(mesh_enabled){
 		#if defined(USE_RF24MESH)
 		  if(mesh_enabled){
@@ -215,7 +216,7 @@ void radioRxTxThreadFunction() {
             }
         } //End RX
 
-		delay(1);
+		//delay(1);
 		
 		if(mesh_enabled){
         #if defined(USE_RF24MESH)
@@ -227,7 +228,15 @@ void radioRxTxThreadFunction() {
 		}else{
             network.update();
 		}
-		
+		if(dataRate == RF24_2MBPS){
+		 delayMicroseconds(1000);
+		}else
+		if(dataRate == RF24_1MBPS){
+		 delayMicroseconds(1500);
+		}else
+		if(dataRate == RF24_250KBPS){
+		 delayMicroseconds(4500);
+		}
 		//network.update();
          // TX section
         
@@ -271,21 +280,29 @@ void radioRxTxThreadFunction() {
 			
 			
 			if(macData.rf24_Verification == RF24_STR){
-				RF24NetworkHeader header(/*to node*/ macData.rf24_Addr, EXTERNAL_DATA_TYPE);
+				const uint16_t other_node = macData.rf24_Addr;			
+				RF24NetworkHeader header(/*to node*/ other_node, EXTERNAL_DATA_TYPE);
 				ok = network.write(header,msg.getPayload(),msg.getLength());
-				if(!ok){ network.update();  RF24NetworkHeader header(/*to node*/ macData.rf24_Addr, EXTERNAL_DATA_TYPE); ok = network.write(header,msg.getPayload(),msg.getLength()); }
-				if(!ok){ network.update();  RF24NetworkHeader header(/*to node*/ macData.rf24_Addr, EXTERNAL_DATA_TYPE); ok = network.write(header,msg.getPayload(),msg.getLength()); }
+
 			}else
 			if(macData.rf24_Verification == ARP_BC){
 				RF24NetworkHeader header(/*to node*/ 00, EXTERNAL_DATA_TYPE); //Set to master node, will be modified by RF24Network if multi-casting
-				
+			  if(msg.getLength() <= 42){	
 				if(thisNodeAddr == 00){ //Master Node
-					ok = network.multicast(header,msg.getPayload(),msg.getLength(),1 ); //Send to Level 1
-					//delay(15);
-					//ok = network.multicast(header,msg.getPayload(),msg.getLength(),1 ); //Send to Level 1
+				
+				    uint32_t arp_timeout = millis();
+					
+					ok=network.multicast(header,msg.getPayload(),msg.getLength(),1 ); //Send to Level 1
+					while(millis() - arp_timeout < 5){network.update();}
+					network.multicast(header,msg.getPayload(),msg.getLength(),1 ); //Send to Level 1					
+					arp_timeout=millis();
+					while(millis()- arp_timeout < 15){network.update();}
+					network.multicast(header,msg.getPayload(),msg.getLength(),1 ); //Send to Level 1					
+
 				}else{
 					ok = network.write(header,msg.getPayload(),msg.getLength());					
 				}
+			  }
 			}
 		  }else{ // TUN always needs to use RF24Mesh for address assignment AND resolution
 		     #if defined (USE_RF24MESH)
@@ -295,13 +312,13 @@ void radioRxTxThreadFunction() {
 			  if ( (meshAddr = mesh.getAddress(lastOctet)) > 0) {
 			    RF24NetworkHeader header(meshAddr, EXTERNAL_DATA_TYPE);
 			    ok = network.write(header, msg.getPayload(), msg.getLength());
-				if(!ok){ network.update();  RF24NetworkHeader header(/*to node*/ meshAddr, EXTERNAL_DATA_TYPE); ok = network.write(header,msg.getPayload(),msg.getLength()); }
-				if(!ok){ network.update();  RF24NetworkHeader header(/*to node*/ meshAddr, EXTERNAL_DATA_TYPE); ok = network.write(header,msg.getPayload(),msg.getLength()); }
 			  }
 			 
 			 #endif
 		  
-		  }		
+		  }
+		
+		
 
 			//printf("Addr: 0%#x\n",macData.rf24_Addr);
 			//printf("Verif: 0%#x\n",macData.rf24_Verification);
@@ -367,7 +384,7 @@ void tunRxThreadFunction() {
 					if(radioTxQueue.size() < 100){ // 150kB max queue size
 						radioTxQueue.push(msg);
 					}else{
-					  std::cout << "**** Tun Drop ****" << std::endl;
+					  //std::cout << "**** Tun Drop ****" << std::endl;
 					}
 
                 } else
@@ -524,6 +541,7 @@ void showhelpinfo(char *s)
   <<"                 -Default if TUN is enabled-"<<std::endl
   <<"         "<<"-i  Config RF24Mesh nodeID (253) -DEFAULT- for non-master nodes "<<std::endl
   <<"                 Note: Last octet of IP must = nodeID"<<std::endl
+  <<"         "<<"-d  Config RF24 radio datarate 1(1MBPS) 2(2MBPS) 250(250KBPS) "<<std::endl
   <<"         "<<"-h  show help information"<<std::endl
   <<std::endl<<"### Examples: ###"<<std::endl
   <<"Master Node w/TAP: ./rf24totun -a00 "<<std::endl
@@ -536,7 +554,9 @@ int main(int argc, char **argv) {
 
 	
 	int tmp;
-	while ((tmp=getopt(argc,argv,"tma:i:"))!=-1)
+	uint8_t rate;
+	dataRate = RF24_1MBPS;
+	while ((tmp=getopt(argc,argv,"tma:i:d:"))!=-1)
     switch (tmp)
       {  
          case 't': config_TUN = 1;
@@ -563,6 +583,14 @@ int main(int argc, char **argv) {
 				     printf("*** Recompile with make MESH=1 option to enable RF24Mesh ***\n");
 					 return 0;
 				   #endif
+				   break;
+		 case 'd': rate = atoi(optarg);
+				   switch (rate){
+				     case 1: dataRate = RF24_1MBPS; break;
+					 case 2: dataRate = RF24_2MBPS; break;
+					 case 250: dataRate = RF24_250KBPS; break;
+					 default: printf("Invalid data rate not set\n"); dataRate = RF24_1MBPS; break;
+				   }
 				   break;
          case '?': showhelpinfo(argv[0]); return 0; break;
 		 default : printf("Default opt\n"); break;
