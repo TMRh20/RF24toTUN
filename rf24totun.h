@@ -48,6 +48,7 @@
 #include <iostream>
 #include <iomanip>
 #include <unistd.h>
+#include <signal.h>
 #include <boost/thread/thread.hpp>
 #include <boost/thread/mutex.hpp>
 #include <boost/lexical_cast.hpp>
@@ -75,7 +76,7 @@
     #define MAX_FRAME_SIZE 32   /**<The NRF24L01 frames are only 32Bytes long */
 #endif
 #ifndef MAX_PAYLOAD_SIZE
-    #define MAX_PAYLOAD_SIZE 1500 /**<The maximal payload size to be sent over the air. */
+    #define MAX_PAYLOAD_SIZE 1514 /**<The maximal payload size to be sent over the air. */
 #endif
 
 /**
@@ -183,6 +184,11 @@ void joinThreads();
 */
 void on_exit();
 
+/**
+ * Called upon termination
+ */
+void terminate(int signum);
+ 
 /**
 * Debug output of the given message buffer preceeded by the debugMsg.
 *

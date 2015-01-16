@@ -176,10 +176,15 @@ int allocateTunDevice(char *dev, int flags, uint16_t address) {
 *       It may increase the throughput.
 */
 void radioRxTxThreadFunction() {
-
+ uint32_t timer = millis();
+ 
     while(1) {
     try {
-        
+        /*if(millis() - timer > 5000){	 
+			 radioRxTxThread->interrupt();
+		}*/
+		
+			
 		//delay(1);
 		if(mesh_enabled){
 		#if defined(USE_RF24MESH)
@@ -232,18 +237,18 @@ void radioRxTxThreadFunction() {
 		 delayMicroseconds(1000);
 		}else
 		if(dataRate == RF24_1MBPS){
-		 delayMicroseconds(1500);
+		 delayMicroseconds(1700);
 		}else
 		if(dataRate == RF24_250KBPS){
 		 delayMicroseconds(4500);
 		}
-		//network.update();
+		network.update();
          // TX section
         
 		bool ok = 0;
-		
-        while(!radioTxQueue.empty() && !radio.available()) {
-		
+		boost::this_thread::interruption_point();
+        while(!radioTxQueue.empty() && !radio.available() && !network.available()) {
+			
 			
             Message msg = radioTxQueue.pop();
 
@@ -327,10 +332,13 @@ void radioRxTxThreadFunction() {
             } else {
                 std::cerr << "failed." << std::endl;
             }
+			
         } //End Tx
+
 
     } catch(boost::thread_interrupted&) {
         std::cerr << "radioRxThreadFunction is stopped" << std::endl;
+		//exit(EXIT_SUCCESS);
         return;
     }
     }
@@ -381,10 +389,13 @@ void tunRxThreadFunction() {
                     msg.setPayload(buffer,nread);
 
                     // send downwards
-					if(radioTxQueue.size() < 100){ // 150kB max queue size
+					/*while(radioTxQueue.size() > 2){
+						boost::this_thread::sleep(boost::posix_time::milliseconds(1));
+					}*/
+					if(radioTxQueue.size() < 5){ // 150kB max queue size
 						radioTxQueue.push(msg);
 					}else{
-					  //std::cout << "**** Tun Drop ****" << std::endl;
+					  std::cout << "**** Tun Drop ****" << std::endl;
 					}
 
                 } else
@@ -392,6 +403,7 @@ void tunRxThreadFunction() {
             }
         }
 
+    boost::this_thread::interruption_point();
     } catch(boost::thread_interrupted&) {
         std::cerr << "tunRxThreadFunction is stopped" << std::endl;
         return;
@@ -410,8 +422,12 @@ void tunTxThreadFunction() {
         //Wait for Message from radio
         Message msg = radioRxQueue.pop();
 
-        assert(msg.getLength() <= MAX_TUN_BUF_SIZE);
-
+        //assert(msg.getLength() <= MAX_TUN_BUF_SIZE);
+        if(msg.getLength() > MAX_TUN_BUF_SIZE){
+			printf("*****WTF OVER *****");
+			return;
+		}
+		
         if (msg.getLength() > 0) {
 
             size_t writtenBytes = write(tunFd, msg.getPayload(), msg.getLength());
@@ -438,6 +454,8 @@ void tunTxThreadFunction() {
             }
 
         }
+
+	boost::this_thread::interruption_point();
     } catch(boost::thread_interrupted&) {
         std::cerr << "tunTxThreadFunction is stopped" << std::endl;
         return;
@@ -476,28 +494,38 @@ void printPayload(char *buffer, int nread, std::string debugMsg = "") {
     << std::cout << "********************************************************************************" << std::endl;
 }
 
+void terminate(int signum){
+	if(signum == SIGTERM){
+		std::cout << "Terminate" << std::endl;
+		exit(EXIT_SUCCESS);
+	}
+}
+
 /**
 * This procedure is called before terminating the programm to properly close and terminate all the threads and file handlers.
 *
 */
 void on_exit() {
     std::cout << "Cleaning up and exiting" << std::endl;
+    
+    if (radioRxTxThread) {
+        radioRxTxThread->interrupt();
+		//radioRxTxThread->join();
+    }
 
-    if (tunRxThread) {
+	if (tunRxThread) {
         tunRxThread->interrupt();
-        tunRxThread->join();
+		//tunRxThread->join();
     }
 
     if (tunTxThread) {
         tunTxThread->interrupt();
-        tunTxThread->join();
-    }
+		//tunTxThread->join();
 
-    if (radioRxTxThread) {
-        radioRxTxThread->interrupt();
-        radioRxTxThread->join();
-    }
-
+	}
+	
+	//Wait for threads to finish
+	sleep(1);
     if (tunFd >= 0)
         close(tunFd);
 }
@@ -552,7 +580,12 @@ void showhelpinfo(char *s)
 
 int main(int argc, char **argv) {
 
+	struct sigaction action;
+	memset(&action, 0, sizeof(struct sigaction));
+	action.sa_handler = terminate;
+	sigaction(SIGTERM, &action, NULL);
 	
+
 	int tmp;
 	uint8_t rate;
 	dataRate = RF24_1MBPS;
