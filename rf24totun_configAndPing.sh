@@ -94,9 +94,9 @@ setIP && pingOther &
 
 
 ##IMPORTANT: Extra configuration for TAP devices - Increase the number of ARP resolution attempts from the default of 3
-sysctl -w net.ipv4.neigh.tun_nrf24.mcast_solicit=10
+sysctl -w net.ipv4.neigh.tun_nrf24.mcast_solicit=15
 #Optionally increase the delay between ARP requests
-sysctl -w net.ipv4.neigh.tun_nrf24.retrans_time_ms=1333
+sysctl -w net.ipv4.neigh.tun_nrf24.retrans_time_ms=800
 #Optionally increase the default base_reachable_time_ms from 30000ms
 sysctl -w net.ipv4.neigh.tun_nrf24.base_reachable_time_ms=90000
 

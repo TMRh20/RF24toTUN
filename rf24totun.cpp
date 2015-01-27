@@ -35,7 +35,7 @@ bool configureAndSetUpRadio() {
 
     #if defined (USE_RF24MESH)
 	if(mesh_enabled){
-	  if(!thisNodeAddr){	  
+	  if(!thisNodeAddr && !mesh_nodeID){	  
 	     mesh.setNodeID(0);
 	  }else{
 		if(!mesh_nodeID){
@@ -176,14 +176,9 @@ int allocateTunDevice(char *dev, int flags, uint16_t address) {
 *       It may increase the throughput.
 */
 void radioRxTxThreadFunction() {
- uint32_t timer = millis();
  
     while(1) {
     try {
-        /*if(millis() - timer > 5000){	 
-			 radioRxTxThread->interrupt();
-		}*/
-		
 			
 		//delay(1);
 		if(mesh_enabled){
@@ -233,23 +228,38 @@ void radioRxTxThreadFunction() {
 		}else{
             network.update();
 		}
+	if(!network.available()){	
 		if(dataRate == RF24_2MBPS){
 		 delayMicroseconds(1000);
 		}else
 		if(dataRate == RF24_1MBPS){
-		 delayMicroseconds(1700);
+		 delayMicroseconds(1500);
 		}else
 		if(dataRate == RF24_250KBPS){
 		 delayMicroseconds(4500);
 		}
-		network.update();
+		/*if(mesh_enabled){
+        #if defined(USE_RF24MESH)
+			mesh.update();
+			if(!thisNodeAddr){
+				mesh.DHCP();
+			}
+		#endif
+		}else{
+            network.update();
+		}*/
+	}
          // TX section
         
 		bool ok = 0;
 		boost::this_thread::interruption_point();
-        while(!radioTxQueue.empty() && !radio.available() && !network.available()) {
-			
-			
+        if(!radioTxQueue.empty() && !radio.available() && !network.available()) {
+			if(dataRate == RF24_2MBPS){
+				delayMicroseconds(1500);
+			}else
+			if(dataRate == RF24_1MBPS){
+				delayMicroseconds(1500);
+			}
             Message msg = radioTxQueue.pop();
 
             if (PRINT_DEBUG >= 1) {
@@ -283,7 +293,7 @@ void radioRxTxThreadFunction() {
 			memcpy(&macData.rf24_Addr,tmp+4,2);
 			memcpy(&macData.rf24_Verification,tmp,4);
 			
-			
+
 			if(macData.rf24_Verification == RF24_STR){
 				const uint16_t other_node = macData.rf24_Addr;			
 				RF24NetworkHeader header(/*to node*/ other_node, EXTERNAL_DATA_TYPE);
@@ -305,20 +315,26 @@ void radioRxTxThreadFunction() {
 					network.multicast(header,msg.getPayload(),msg.getLength(),1 ); //Send to Level 1					
 
 				}else{
+
 					ok = network.write(header,msg.getPayload(),msg.getLength());					
 				}
 			  }
 			}
 		  }else{ // TUN always needs to use RF24Mesh for address assignment AND resolution
+
 		     #if defined (USE_RF24MESH)
 			   uint8_t lastOctet = tmp[19];
 			   uint8_t meshAddr;
-			 
-			  if ( (meshAddr = mesh.getAddress(lastOctet)) > 0) {
-			    RF24NetworkHeader header(meshAddr, EXTERNAL_DATA_TYPE);
+
+			  if ( (meshAddr = mesh.getAddress(lastOctet)) > 0 || mesh_nodeID) {
+				RF24NetworkHeader header(meshAddr, EXTERNAL_DATA_TYPE);
+			    if(mesh_nodeID){ //If not the master node, send to master (00)
+				  header.to_node = 00;				
+				}
 			    ok = network.write(header, msg.getPayload(), msg.getLength());
+			  }else{
+				printf("Could not find matching mesh nodeID for IP ending in %d\n",lastOctet);
 			  }
-			 
 			 #endif
 		  
 		  }
@@ -392,10 +408,10 @@ void tunRxThreadFunction() {
 					/*while(radioTxQueue.size() > 2){
 						boost::this_thread::sleep(boost::posix_time::milliseconds(1));
 					}*/
-					if(radioTxQueue.size() < 5){ // 150kB max queue size
+					if(radioTxQueue.size() < 2){ // 150kB max queue size
 						radioTxQueue.push(msg);
 					}else{
-					  std::cout << "**** Tun Drop ****" << std::endl;
+					  //std::cout << "**** Tun Drop ****" << std::endl;
 					}
 
                 } else
