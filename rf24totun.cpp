@@ -194,16 +194,14 @@ void radioRxTxThreadFunction() {
            network.update();
         }
          //RX section
-         
-        while ( network.available() ) { // Is there anything ready for us?
-
-            RF24NetworkHeader header;        // If so, grab it and print it out
+		RF24NetworkFrame f;
+		while(network.external_queue.size() > 0){
+			f = network.external_queue.front();
+			
             Message msg;
-            uint8_t buffer[MAX_PAYLOAD_SIZE];
-
-            unsigned int bytesRead = network.read(header,buffer,MAX_PAYLOAD_SIZE);
+            unsigned int bytesRead = f.message_size;//network.read(header,buffer,MAX_PAYLOAD_SIZE);
             if (bytesRead > 0) {
-                msg.setPayload(buffer,bytesRead);
+                msg.setPayload(f.message_buffer,bytesRead);
                 if (PRINT_DEBUG >= 1) {
                     std::cout << "Radio: Received "<< bytesRead << " bytes ... " << std::endl;
                 }
@@ -214,6 +212,7 @@ void radioRxTxThreadFunction() {
             } else {
                 std::cerr << "Radio: Error reading data from radio. Read '" << bytesRead << "' Bytes." << std::endl;
             }
+			network.external_queue.pop();
         } //End RX
 
 		//delay(1);
@@ -228,7 +227,7 @@ void radioRxTxThreadFunction() {
 		}else{
             network.update();
 		}
-	if(!network.available()){	
+	if(network.external_queue.size() == 0){	
 		if(dataRate == RF24_2MBPS){
 		 delayMicroseconds(1000);
 		}else
@@ -253,7 +252,7 @@ void radioRxTxThreadFunction() {
         
 		bool ok = 0;
 		boost::this_thread::interruption_point();
-        if(!radioTxQueue.empty() && !radio.available() && !network.available()) {
+        if(!radioTxQueue.empty() && !radio.available() && network.external_queue.size() == 0) {
 			if(dataRate == RF24_2MBPS){
 				delayMicroseconds(1500);
 			}else
@@ -458,7 +457,8 @@ void tunTxThreadFunction() {
 				}
 			}
             if (writtenBytes != msg.getLength()) {
-                std::cerr << "Tun: Less bytes written to tun/tap device then requested." << std::endl;
+                //std::cerr << "Tun: Less bytes written to tun/tap device then requested." << std::endl;
+				printf("Tun: Less bytes written %d to tun/tap device then requested %d.",writtenBytes,msg.getLength());
             } else {
                 if (PRINT_DEBUG >= 1) {
                     std::cout << "Tun: Successfully wrote " << writtenBytes  << " bytes to tun device" << std::endl;
