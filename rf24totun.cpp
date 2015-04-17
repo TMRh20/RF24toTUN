@@ -323,7 +323,7 @@ void radioRxTxThreadFunction() {
 
 		     #if defined (USE_RF24MESH)
 			   uint8_t lastOctet = tmp[19];
-			   uint8_t meshAddr;
+			   uint16_t meshAddr;
 
 			  if ( (meshAddr = mesh.getAddress(lastOctet)) > 0 || mesh_nodeID) {
 				RF24NetworkHeader header(meshAddr, EXTERNAL_DATA_TYPE);
